@@ -40,6 +40,13 @@ NATIVE_CURRENCY = os.environ.get("DEGIRO_NATIVE_CURRENCY", "EUR").upper()
 USE_JUSTETF = os.environ.get("DEGIRO_USE_JUSTETF", "true").lower() != "false"
 TIMEOUT = 30
 
+# A share split is the one corporate action that corrupts this source silently:
+# the price halves, the hand-maintained share count does not, and the row still
+# reports `ok`. A one-day move this large is far more likely to be a split (or a
+# ticker/currency change) than a real move, so it is flagged for a human.
+# Set to 0 to disable.
+PRICE_JUMP_PCT = dec(os.environ.get("DEGIRO_PRICE_JUMP_PCT", "0.35"))
+
 
 def fetch(fx, dry_run: bool = False) -> Row:
     holdings = _read_holdings()
@@ -53,6 +60,7 @@ def fetch(fx, dry_run: bool = False) -> Row:
     cash_czk = Decimal(0)
     stale_dates: list[str] = []
     unpriced: list[str] = []
+    suspect: list[tuple[str, dict]] = []
 
     for holding in holdings:
         cash_czk += dec(holding["cash_czk"])
@@ -60,15 +68,20 @@ def fetch(fx, dry_run: bool = False) -> Row:
         if shares == 0:
             continue
 
+        key = holding["ticker"] or holding["isin"]
         quote = _price(holding, cache)
         if quote is None:
-            unpriced.append(holding["ticker"] or holding["isin"])
+            unpriced.append(key)
             continue
 
         price, currency, priced_on = quote
         positions_czk += fx.to_czk(shares * price, currency)
         if priced_on != today:
             stale_dates.append(priced_on)
+
+        anomaly = (cache.get(key) or {}).get("anomaly")
+        if anomaly:
+            suspect.append((key, anomaly))
 
     if not dry_run:
         _write_cache(cache)
@@ -95,7 +108,14 @@ def fetch(fx, dry_run: bool = False) -> Row:
         notes.append(f"priced {min(stale_dates)}")
     if unpriced:
         row.status = STATUS_STALE
-        notes.append(f"unpriced: {', '.join(unpriced)}")
+        notes.append(f"unpriced: {' '.join(unpriced)}")
+    for key, anomaly in suspect:
+        row.status = STATUS_STALE
+        cause = anomaly.get("detail") or "check for a split or ISIN change"
+        notes.append(
+            f"{key} price moved {anomaly.get('pct')}% on {anomaly.get('on')}"
+            f" — {cause}; verify shares in {HOLDINGS_PATH.name}"
+        )
     row.note = "; ".join(notes)
     return row
 
@@ -121,9 +141,22 @@ def _read_holdings() -> list[dict]:
 
 
 def _price(holding: dict, cache: dict) -> tuple[Decimal, str, str] | None:
-    """(price, currency, pricing date). Falls back to the carried-forward price."""
+    """(price, currency, pricing date). Falls back to the carried-forward price.
+
+    Also maintains the split/corporate-action flag on the cache entry.
+    """
     key = holding["ticker"] or holding["isin"]
     today = dt.date.today().isoformat()
+    cached = cache.get(key) or {}
+    shares_sig = holding["shares"]
+
+    # The flag clears itself as soon as the share count for this holding
+    # changes — editing it is exactly the action the flag was asking for. It
+    # persists across runs until then, so a warning cannot scroll past once and
+    # leave the row quietly wrong afterwards.
+    anomaly = cached.get("anomaly")
+    if anomaly and anomaly.get("shares") != shares_sig:
+        anomaly = None
 
     fresh = _yahoo(holding["ticker"]) if holding["ticker"] else None
     if fresh is None and USE_JUSTETF and holding["isin"]:
@@ -131,13 +164,54 @@ def _price(holding: dict, cache: dict) -> tuple[Decimal, str, str] | None:
 
     if fresh is not None:
         price, currency = fresh
-        cache[key] = {"price": str(price), "currency": currency, "date": today}
+        previous = dec(cached.get("price"))
+        if anomaly is None and previous > 0 and PRICE_JUMP_PCT > 0:
+            change = (price - previous) / previous
+            if abs(change) >= PRICE_JUMP_PCT:
+                anomaly = {
+                    "shares": shares_sig,
+                    "pct": f"{change * 100:.1f}",
+                    "on": today,
+                    "detail": _split_hint(holding["ticker"]),
+                }
+        entry = {"price": str(price), "currency": currency, "date": today}
+        if anomaly:
+            entry["anomaly"] = anomaly
+        cache[key] = entry
         return price, currency, today
 
-    cached = cache.get(key)
-    if cached:
-        return dec(cached.get("price")), cached.get("currency", NATIVE_CURRENCY), cached.get("date", "")
+    if cached.get("price"):
+        cached.pop("anomaly", None)
+        if anomaly:
+            cached["anomaly"] = anomaly
+        cache[key] = cached
+        return (
+            dec(cached.get("price")),
+            cached.get("currency", NATIVE_CURRENCY),
+            cached.get("date", ""),
+        )
     return None
+
+
+def _split_hint(ticker: str) -> str:
+    """Name the split behind a price jump, if there was one. Best effort — this
+    only runs when a jump has already been detected, so it costs nothing on a
+    normal run and an empty answer just means 'cause unknown'."""
+    if not ticker:
+        return ""
+    try:
+        import yfinance
+
+        splits = yfinance.Ticker(ticker).splits
+        if splits is None or len(splits) == 0:
+            return ""
+        when, ratio = splits.index[-1], float(splits.iloc[-1])
+        when = when.date() if hasattr(when, "date") else None
+        if when and when >= dt.date.today() - dt.timedelta(days=45):
+            return f"{ticker} split {ratio:g}:1 on {when.isoformat()}"
+    except Exception:
+        return ""
+    return ""
 
 
 def _yahoo(ticker: str) -> tuple[Decimal, str] | None:

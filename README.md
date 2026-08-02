@@ -136,6 +136,28 @@ marked `stale` with the date the price actually comes from.
 > FX timing are not modelled. That is expected. Use the Degiro app for the
 > authoritative number; use this for the shape of the curve.
 
+**Prices update themselves; share counts do not.** If you buy or sell and forget
+to edit this file, the tracker keeps valuing your old position at today's price
+and still reports `ok`. Edit it in the same sitting as the trade.
+
+The one change that could go wrong without you doing anything is a **share
+split**: the price halves, your share count doesn't, and the value silently
+halves with it. So a one-day price move of 35% or more marks the row `stale`
+with a note naming the ticker and the move — and if yfinance knows about a
+recent split, the note names that too:
+
+```
+VWCE.DE price moved -50.0% on 2026-06-01 — VWCE.DE split 2:1 on 2026-06-01;
+verify shares in degiro_holdings.csv
+```
+
+The flag is **sticky**: it survives across runs, and across days when the price
+source is down, until you change that holding's share count — the edit it was
+asking for is what clears it. A warning you can scroll past once is no warning.
+
+Tune or disable with `DEGIRO_PRICE_JUMP_PCT` (default `0.35`, `0` disables). Raise
+it if you hold something genuinely volatile enough to move 35% in a day.
+
 `cash_czk` is a CZK figure, but the row reports in `DEGIRO_NATIVE_CURRENCY`
 (EUR by default) so `cash + positions_value = total_native` stays true in one
 currency. Set `DEGIRO_NATIVE_CURRENCY=CZK` for a literal pass-through.
