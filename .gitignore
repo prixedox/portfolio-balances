@@ -1,4 +1,14 @@
+# Credentials
 .env
+
+# Your balance history and holdings never leave this machine. The repo is code
+# only — this is what stops a stray `git push` from publishing your portfolio.
+data/balances.csv
+data/price_cache.json
+data/index_base.json
+data/degiro_holdings.csv
+dashboard.html
+
 *.csv.tmp
 __pycache__/
 *.py[cod]

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Snapshot every portfolio source and append the result to data/balances.csv.
+"""Snapshot every portfolio source, append to data/balances.csv, rebuild the dashboard.
 
-Runs identically locally and in GitHub Actions — the only difference is where
-the credentials come from (.env locally, repo secrets in CI).
+Everything runs on your machine: credentials come from .env, and neither the
+balances nor the generated dashboard are ever committed.
 
-    python snapshot.py                 # fetch everything and write the CSV
+    python snapshot.py                 # refresh the CSV and dashboard.html
+    python snapshot.py --open          # ...and open the dashboard in a browser
     python snapshot.py --dry-run       # print the rows, touch nothing on disk
     python snapshot.py --only t212     # one source (repeatable, or comma-separated)
+    python snapshot.py --no-dashboard  # update the CSV only
 
 Exit code is 0 as long as at least one source produced a balance. A single
 broken source writes an ``error`` row and the run carries on, so an outage shows
@@ -38,6 +40,9 @@ from sources.base import (
 REPO_ROOT = Path(__file__).resolve().parent
 CSV_PATH = Path(os.environ.get("BALANCES_CSV", REPO_ROOT / "data" / "balances.csv"))
 INDEX_BASE_PATH = REPO_ROOT / "data" / "index_base.json"
+TEMPLATE_PATH = REPO_ROOT / "dashboard_template.html"
+DASHBOARD_PATH = Path(os.environ.get("DASHBOARD_HTML", REPO_ROOT / "dashboard.html"))
+CSV_PLACEHOLDER = "__BALANCES_CSV__"
 
 # Fetch order is also the display order in the dashboard.
 FETCHERS = [
@@ -71,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\nAll sources failed.", file=sys.stderr)
 
     if args.dry_run:
-        print("\n--dry-run: data/balances.csv not written.")
+        print("\n--dry-run: balances.csv and dashboard.html not written.")
         return 0 if succeeded else 1
 
     existing = _read_csv()
@@ -79,8 +84,15 @@ def main(argv: list[str] | None = None) -> int:
     if index_mode:
         merged = _to_index_mode(merged)
     _write_csv(merged)
-
     print(f"\nWrote {len(merged)} rows to {CSV_PATH}")
+
+    if not args.no_dashboard:
+        built = _build_dashboard()
+        if built:
+            print(f"Dashboard   {DASHBOARD_PATH}")
+            if args.open:
+                _open_dashboard()
+
     return 0 if succeeded else 1
 
 
@@ -178,6 +190,58 @@ def _write_csv(rows: list[dict]) -> None:
         for row in rows:
             writer.writerow({column: row.get(column, "") for column in COLUMNS})
     tmp.replace(CSV_PATH)
+
+
+# --------------------------------------------------------------------------
+# dashboard
+
+
+def _build_dashboard() -> bool:
+    """Bake the CSV into a standalone dashboard.html.
+
+    Embedding rather than fetching is what makes the file openable straight from
+    disk: a page on file:// is not allowed to fetch a sibling file, so a
+    fetch-based dashboard would need a web server running to show anything.
+    """
+    if not TEMPLATE_PATH.exists():
+        print(f"warning: {TEMPLATE_PATH.name} missing, dashboard not built", file=sys.stderr)
+        return False
+    try:
+        template = TEMPLATE_PATH.read_text(encoding="utf-8")
+        csv_text = CSV_PATH.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"warning: could not build dashboard: {exc}", file=sys.stderr)
+        return False
+
+    slots = template.count(CSV_PLACEHOLDER)
+    if slots != 1:
+        print(
+            f"warning: {TEMPLATE_PATH.name} has {slots} {CSV_PLACEHOLDER} slots, expected 1"
+            " — dashboard not built",
+            file=sys.stderr,
+        )
+        return False
+
+    # The CSV sits inside a <script> block, so any "</" in a note would end the
+    # element early. Nothing else needs escaping — the block is not HTML-parsed.
+    safe = csv_text.replace("</", "<\\/")
+    try:
+        DASHBOARD_PATH.write_text(
+            template.replace(CSV_PLACEHOLDER, safe), encoding="utf-8"
+        )
+    except OSError as exc:
+        print(f"warning: could not write {DASHBOARD_PATH}: {exc}", file=sys.stderr)
+        return False
+    return True
+
+
+def _open_dashboard() -> None:
+    import webbrowser
+
+    try:
+        webbrowser.open(DASHBOARD_PATH.resolve().as_uri())
+    except Exception as exc:
+        print(f"warning: could not open a browser: {exc}", file=sys.stderr)
 
 
 # --------------------------------------------------------------------------
@@ -282,6 +346,16 @@ def _parse_args(argv):
         default=[],
         metavar="SOURCE",
         help="fetch one source only; repeatable or comma-separated",
+    )
+    parser.add_argument(
+        "--open",
+        action="store_true",
+        help="open the refreshed dashboard in your browser when done",
+    )
+    parser.add_argument(
+        "--no-dashboard",
+        action="store_true",
+        help="update the CSV without rebuilding dashboard.html",
     )
     return parser.parse_args(argv)
 

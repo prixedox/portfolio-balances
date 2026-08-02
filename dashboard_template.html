@@ -233,13 +233,15 @@
   <footer id="footer"></footer>
 </div>
 
+<script id="csv-data" type="application/csv">__BALANCES_CSV__</script>
+
 <script>
 "use strict";
 
-// Canonical data lives at data/balances.csv. The workflow also mirrors it into
-// docs/ so the dashboard works whichever way Pages is configured (from /docs or
-// from the branch root) and when served locally from the repo root.
-const CANDIDATES = ["./balances.csv", "../data/balances.csv", "./data/balances.csv"];
+// snapshot.py bakes the CSV into the generated dashboard.html, so the file
+// opens straight from disk with no server — file:// would block fetch(). The
+// fetch paths below are the fallback for viewing this template over HTTP.
+const CANDIDATES = ["./data/balances.csv", "./balances.csv", "../data/balances.csv"];
 
 const SERIES = [
   { key: "t212",     label: "Trading 212", color: "var(--series-1)" },
@@ -253,7 +255,17 @@ const state = { rows: [], range: "all", table: false, indexMode: false, source: 
 
 // ---------------------------------------------------------------- load & parse
 
+// Built by concatenation on purpose: if the literal token appeared here, the
+// generator's substitution would rewrite this line too and break the script.
+const EMBED_PLACEHOLDER = "__BALANCES" + "_CSV__";
+
 async function load() {
+  const embedded = document.getElementById("csv-data")?.textContent ?? "";
+  if (embedded.trim() && !embedded.includes(EMBED_PLACEHOLDER)) {
+    state.source = "embedded snapshot";
+    return parseCSV(embedded.trim());
+  }
+
   let lastError = "";
   for (const url of CANDIDATES) {
     try {
@@ -796,12 +808,12 @@ function wire() {
   } catch (err) {
     document.getElementById("subtitle").textContent = "Could not load balances.csv";
     document.getElementById("alerts").appendChild(banner("critical", "✕",
-      `No balance data found (${err.message}). The dashboard reads the CSV committed by the ` +
-      `daily workflow; if the workflow has never run there is nothing to show yet.`));
+      `No balance data found (${err.message}). This is the template — open the generated ` +
+      `dashboard.html instead, or run "python snapshot.py" to produce it.`));
     return;
   }
   if (!state.rows.length) {
-    document.getElementById("subtitle").textContent = "balances.csv is empty — run the workflow once.";
+    document.getElementById("subtitle").textContent = "No snapshots yet — run \"python snapshot.py\" once.";
     return;
   }
   state.indexMode = state.rows.some(r => r.source === TOTAL_ROW);
