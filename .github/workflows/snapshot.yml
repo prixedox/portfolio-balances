@@ -1,0 +1,68 @@
+name: Daily balance snapshot
+
+on:
+  schedule:
+    # 21:00 UTC = 23:00 CEST, after the US close.
+    # GitHub's scheduler is best-effort and can fire 5-30 minutes late under
+    # load. Nothing here depends on exact timing.
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Take snapshot
+        env:
+          T212_API_KEY: ${{ secrets.T212_API_KEY }}
+          T212_API_SECRET: ${{ secrets.T212_API_SECRET }}
+          COINBASE_API_KEY_NAME: ${{ secrets.COINBASE_API_KEY_NAME }}
+          COINBASE_API_PRIVATE_KEY: ${{ secrets.COINBASE_API_PRIVATE_KEY }}
+          COINMATE_CLIENT_ID: ${{ secrets.COINMATE_CLIENT_ID }}
+          COINMATE_PUBLIC_KEY: ${{ secrets.COINMATE_PUBLIC_KEY }}
+          COINMATE_PRIVATE_KEY: ${{ secrets.COINMATE_PRIVATE_KEY }}
+          # Optional: set the repo variable INDEX_MODE to "true" to publish
+          # shape-only figures instead of absolute amounts.
+          INDEX_MODE: ${{ vars.INDEX_MODE }}
+          INDEX_BASE_CZK: ${{ secrets.INDEX_BASE_CZK }}
+        run: python snapshot.py
+
+      - name: Mirror the CSV into docs/ for Pages
+        # Pages serving from /docs treats that folder as the site root, so the
+        # dashboard cannot reach ../data/. The mirror keeps data/balances.csv as
+        # the single source of truth (and the URL Excel points at) while giving
+        # the page a sibling file it can always fetch.
+        run: cp data/balances.csv docs/balances.csv
+
+      - name: Commit if the data changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Directory form: price_cache.json and index_base.json only exist once
+          # the relevant feature has run, and `git add` errors on a missing path.
+          git add data docs/balances.csv
+          # Reruns on the same day overwrite the same rows, so a no-op rerun
+          # produces no diff and therefore no commit.
+          if git diff --cached --quiet; then
+            echo "No change — nothing to commit."
+          else
+            git commit -m "Snapshot $(date -u +%Y-%m-%d)"
+            git push
+          fi

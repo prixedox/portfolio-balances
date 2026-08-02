@@ -1,0 +1,819 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio balances</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --plane: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --good: #0ca30c;
+    --warning: #fab219;
+    --critical: #d03b3b;
+    --success-text: #006300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1: #1a1a19;
+      --plane: #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --series-3: #199e70;
+      --series-4: #c98500;
+      --success-text: #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --plane: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --success-text: #0ca30c;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 20px 64px;
+    background: var(--plane);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+
+  header { margin-bottom: 24px; }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .sub { color: var(--text-secondary); font-size: 13px; }
+
+  .hero { display: flex; align-items: baseline; gap: 14px; margin: 20px 0 4px; flex-wrap: wrap; }
+  .hero-value { font-size: 40px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.05; }
+  .hero-unit { font-size: 17px; color: var(--text-secondary); font-weight: 500; }
+  .delta { font-size: 14px; font-weight: 600; }
+  .delta.up { color: var(--success-text); }
+  .delta.down { color: var(--critical); }
+  .delta.flat { color: var(--text-muted); }
+
+  .controls {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin: 24px 0 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border);
+  }
+  .controls .spacer { flex: 1 1 auto; }
+  button {
+    font: inherit; font-size: 13px; color: var(--text-secondary);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 7px; padding: 6px 11px; cursor: pointer;
+  }
+  button:hover { color: var(--text-primary); }
+  button[aria-pressed="true"] { color: var(--text-primary); font-weight: 600; border-color: var(--axis); }
+  button:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 18px 12px; margin-bottom: 18px;
+  }
+  .card h2 { font-size: 13px; font-weight: 600; margin: 0 0 2px; }
+  .card .note { font-size: 12px; color: var(--text-muted); margin: 0 0 14px; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 0 0 10px; font-size: 12px; color: var(--text-secondary); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+
+  .chart { position: relative; width: 100%; }
+  svg { display: block; width: 100%; overflow: visible; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .axisline { stroke: var(--axis); stroke-width: 1; }
+  .tick { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .endlabel { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .tooltip {
+    position: absolute; pointer-events: none; opacity: 0; transition: opacity .1s;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 9px; padding: 9px 11px; font-size: 12px; min-width: 168px;
+    box-shadow: 0 6px 22px rgba(0,0,0,.13); z-index: 5;
+  }
+  .tooltip.on { opacity: 1; }
+  .tt-date { font-weight: 600; margin-bottom: 6px; }
+  .tt-row { display: flex; align-items: center; gap: 7px; margin-top: 3px; }
+  .tt-row .label { color: var(--text-secondary); flex: 1; }
+  .tt-row .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .tt-total { margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--border); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 600; color: var(--text-secondary); font-size: 12px;
+       padding: 0 10px 8px 0; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+  td.num, th.num { text-align: right; }
+  tbody tr:last-child td { border-bottom: 0; }
+  .src { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: normal; }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600;
+    padding: 2px 8px 2px 6px; border-radius: 999px; border: 1px solid var(--border);
+    font-variant-numeric: normal; white-space: nowrap;
+  }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .chip.ok { color: var(--text-secondary); }
+  .chip.ok .dot { background: var(--good); }
+  .chip.stale { color: var(--text-primary); border-color: var(--warning); }
+  .chip.stale .dot { background: var(--warning); }
+  .chip.error { color: var(--text-primary); border-color: var(--critical); }
+  .chip.error .dot { background: var(--critical); }
+
+  .rownote { color: var(--text-muted); font-size: 12px; font-variant-numeric: normal; }
+  .banner {
+    display: flex; gap: 9px; align-items: flex-start; font-size: 13px;
+    border: 1px solid var(--critical); border-radius: 9px; padding: 10px 12px; margin-bottom: 18px;
+  }
+  .banner.warn { border-color: var(--warning); }
+  .banner .ico { font-weight: 700; line-height: 1.35; }
+  .hidden { display: none !important; }
+  .msg { color: var(--text-secondary); padding: 26px 0; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  footer { color: var(--text-muted); font-size: 12px; margin-top: 26px; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Portfolio balances</h1>
+    <div class="sub" id="subtitle">Loading…</div>
+    <div class="hero">
+      <span class="hero-value" id="heroValue">—</span>
+      <span class="hero-unit" id="heroUnit"></span>
+      <span class="delta flat" id="heroDelta"></span>
+    </div>
+  </header>
+
+  <div id="alerts"></div>
+
+  <div class="controls" role="group" aria-label="Dashboard controls">
+    <span class="sub" style="margin-right:2px">Range</span>
+    <button type="button" data-range="30" aria-pressed="false">30d</button>
+    <button type="button" data-range="90" aria-pressed="false">90d</button>
+    <button type="button" data-range="365" aria-pressed="false">1y</button>
+    <button type="button" data-range="all" aria-pressed="true">All</button>
+    <span class="spacer"></span>
+    <button type="button" id="viewToggle" aria-pressed="false">Table view</button>
+  </div>
+
+  <div id="charts">
+    <section class="card">
+      <h2 id="totalTitle">Total portfolio</h2>
+      <p class="note" id="totalNote"></p>
+      <div class="chart" id="totalChart"></div>
+    </section>
+
+    <section class="card">
+      <h2 id="stackTitle">Breakdown by source</h2>
+      <p class="note" id="stackNote"></p>
+      <div class="legend" id="legend"></div>
+      <div class="chart" id="stackChart"></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Latest snapshot</h2>
+    <p class="note" id="latestNote"></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Source</th><th>Status</th><th class="num">Cash</th>
+          <th class="num">Positions</th><th class="num">Total</th>
+          <th class="num">Total CZK</th><th>Note</th>
+        </tr>
+      </thead>
+      <tbody id="latestBody"></tbody>
+    </table>
+  </section>
+
+  <section class="card hidden" id="tableCard">
+    <h2>All snapshots</h2>
+    <p class="note">Every row in <code>data/balances.csv</code> for the selected range — the WCAG-clean equivalent of the charts above.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th><th>Source</th><th>Cur</th><th class="num">Cash</th>
+          <th class="num">Positions</th><th class="num">Total native</th>
+          <th class="num">Total CZK</th><th>Status</th><th>Note</th>
+        </tr>
+      </thead>
+      <tbody id="allBody"></tbody>
+    </table>
+  </section>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+"use strict";
+
+// Canonical data lives at data/balances.csv. The workflow also mirrors it into
+// docs/ so the dashboard works whichever way Pages is configured (from /docs or
+// from the branch root) and when served locally from the repo root.
+const CANDIDATES = ["./balances.csv", "../data/balances.csv", "./data/balances.csv"];
+
+const SERIES = [
+  { key: "t212",     label: "Trading 212", color: "var(--series-1)" },
+  { key: "coinbase", label: "Coinbase",    color: "var(--series-2)" },
+  { key: "coinmate", label: "Coinmate",    color: "var(--series-3)" },
+  { key: "degiro",   label: "Degiro",      color: "var(--series-4)" },
+];
+const TOTAL_ROW = "_total";
+
+const state = { rows: [], range: "all", table: false, indexMode: false, source: "" };
+
+// ---------------------------------------------------------------- load & parse
+
+async function load() {
+  let lastError = "";
+  for (const url of CANDIDATES) {
+    try {
+      const resp = await fetch(url, { cache: "no-store" });
+      if (!resp.ok) { lastError = `${url} → HTTP ${resp.status}`; continue; }
+      const text = await resp.text();
+      if (!/^\s*date\s*,/i.test(text)) { lastError = `${url} → not a balances CSV`; continue; }
+      state.source = url;
+      return parseCSV(text);
+    } catch (err) { lastError = `${url} → ${err.message}`; }
+  }
+  throw new Error(lastError || "no CSV found");
+}
+
+function parseCSV(text) {
+  const lines = text.replace(/\r/g, "").split("\n").filter(l => l.trim() !== "");
+  const head = splitLine(lines[0]).map(h => h.trim());
+  return lines.slice(1).map(line => {
+    const cells = splitLine(line);
+    const row = {};
+    head.forEach((key, i) => { row[key] = (cells[i] ?? "").trim(); });
+    return row;
+  }).filter(r => r.date);
+}
+
+// Minimal RFC4180 splitter — the writer never emits commas inside notes, but a
+// hand-edited CSV might.
+function splitLine(line) {
+  const out = []; let cur = ""; let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quoted) {
+      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else cur += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") { out.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+const fmt = (v, dp = 0) => v === null || v === undefined ? "—"
+  : v.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp })
+     .replace(/,/g, " ");
+
+// ---------------------------------------------------------------- shaping
+
+function dayIndex() {
+  // date -> { source -> row }, restricted to the selected range.
+  const byDate = new Map();
+  for (const row of state.rows) {
+    if (!byDate.has(row.date)) byDate.set(row.date, {});
+    byDate.get(row.date)[row.source] = row;
+  }
+  let dates = [...byDate.keys()].sort();
+  if (state.range !== "all") {
+    const cutoff = new Date(dates[dates.length - 1]);
+    cutoff.setDate(cutoff.getDate() - Number(state.range));
+    const iso = cutoff.toISOString().slice(0, 10);
+    dates = dates.filter(d => d >= iso);
+  }
+  return { dates, byDate };
+}
+
+// The sources that actually exist in this CSV — a repo tracking three of the
+// four should not show a permanent "missing" for the fourth.
+function expectedSources() {
+  const seen = new Set(state.rows.map(r => r.source));
+  return SERIES.filter(s => seen.has(s.key));
+}
+
+// Which sources did not produce a usable value on this day.
+function failedOn(day) {
+  return expectedSources().filter(s => {
+    const row = day[s.key];
+    return !row || row.status === "error" || num(row.total_czk) === null;
+  });
+}
+
+function totalFor(day) {
+  if (state.indexMode) {
+    const t = day[TOTAL_ROW];
+    return t ? num(t.total_czk) : null;
+  }
+  // A day where any source failed has no comparable total: summing what did
+  // report would draw a cliff that looks like a real loss. The day is a gap,
+  // and the marker on the baseline says so.
+  if (failedOn(day).length) return null;
+  let sum = null;
+  for (const s of SERIES) {
+    const v = num(day[s.key]?.total_czk);
+    if (v === null) continue;
+    sum = (sum ?? 0) + v;
+  }
+  return sum;
+}
+
+// ---------------------------------------------------------------- rendering
+
+function render() {
+  const { dates, byDate } = dayIndex();
+  const unit = state.indexMode ? "index" : "CZK";
+
+  document.getElementById("totalNote").textContent = state.indexMode
+    ? "Portfolio index, 100 at the base date. Absolute amounts are not published."
+    : "Every source summed at the ČNB daily rate. A day where any source failed "
+      + "has no total — the line breaks and the day is marked on the baseline.";
+  document.getElementById("stackNote").textContent = state.indexMode
+    ? "Each source's share of the portfolio, in percent."
+    : "Each source's contribution to the total, in CZK.";
+  document.getElementById("stackTitle").textContent = state.indexMode
+    ? "Share by source" : "Breakdown by source";
+  document.getElementById("totalTitle").textContent = state.indexMode
+    ? "Portfolio index" : "Total portfolio (CZK)";
+
+  renderHero(dates, byDate, unit);
+  renderAlerts(dates, byDate);
+  renderLegend();
+  renderTotalChart(dates, byDate);
+  renderStackChart(dates, byDate);
+  renderLatest(dates, byDate);
+  renderAllRows(dates);
+
+  document.getElementById("charts").classList.toggle("hidden", state.table);
+  document.getElementById("tableCard").classList.toggle("hidden", !state.table);
+}
+
+function renderHero(dates, byDate, unit) {
+  const last = dates[dates.length - 1];
+  const v = last ? totalFor(byDate.get(last)) : null;
+  document.getElementById("heroValue").textContent = v === null ? "—" : fmt(v, state.indexMode ? 1 : 0);
+  document.getElementById("heroUnit").textContent = v === null ? "" : unit;
+
+  const prev = dates.length > 1 ? totalFor(byDate.get(dates[dates.length - 2])) : null;
+  const el = document.getElementById("heroDelta");
+  if (v === null || prev === null || prev === 0) {
+    el.textContent = ""; el.className = "delta flat"; return;
+  }
+  const pct = (v - prev) / Math.abs(prev) * 100;
+  const dir = pct > 0.005 ? "up" : pct < -0.005 ? "down" : "flat";
+  el.className = "delta " + dir;
+  el.textContent = `${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct).toFixed(2)}% vs ${dates[dates.length - 2]}`;
+}
+
+function renderAlerts(dates, byDate) {
+  const host = document.getElementById("alerts");
+  host.innerHTML = "";
+  const last = dates[dates.length - 1];
+  if (!last) return;
+  const day = byDate.get(last);
+  const failed = failedOn(day);
+  const stale = expectedSources().filter(s => day[s.key]?.status === "stale");
+
+  if (failed.length) {
+    host.appendChild(banner("critical", "✕",
+      `${failed.map(s => s.label).join(", ")} did not report on ${last}. ` +
+      `That day has no portfolio total — it is shown as a gap, not as a drop.`));
+  }
+  if (stale.length) {
+    host.appendChild(banner("warn", "!",
+      `${stale.map(s => s.label).join(", ")} priced from carried-forward data on ${last} ` +
+      `(${stale.map(s => day[s.key].note).filter(Boolean).join("; ") || "see table"}).`));
+  }
+}
+
+function banner(kind, icon, text) {
+  const el = document.createElement("div");
+  el.className = "banner" + (kind === "warn" ? " warn" : "");
+  el.innerHTML = `<span class="ico" style="color:var(--${kind === "warn" ? "warning" : "critical"})">${icon}</span><span></span>`;
+  el.lastElementChild.textContent = text;
+  return el;
+}
+
+function renderLegend() {
+  document.getElementById("legend").innerHTML = SERIES.map(s =>
+    `<span><i class="swatch" style="background:${s.color}"></i>${s.label}</span>`
+  ).join("");
+}
+
+// --- geometry helpers -------------------------------------------------------
+
+const PAD = { top: 14, right: 58, bottom: 26, left: 62 };
+
+function svgEl(name, attrs) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+  return el;
+}
+
+function niceTicks(min, max, count) {
+  if (!(max > min)) return [min];
+  const raw = (max - min) / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) ?? mag * 10;
+  const out = [];
+  for (let t = Math.ceil(min / step) * step; t <= max + step * 0.001; t += step) out.push(t);
+  return out;
+}
+
+function frame(host, height) {
+  host.innerHTML = "";
+  const width = Math.max(host.clientWidth || 640, 320);
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${width} ${height}`, height,
+    role: "img", preserveAspectRatio: "none",
+  });
+  host.appendChild(svg);
+  return { svg, width, height, w: width - PAD.left - PAD.right, h: height - PAD.top - PAD.bottom };
+}
+
+function axes(g, f, dates, ticks, fmtTick) {
+  for (const t of ticks) {
+    const y = f.yScale(t);
+    g.appendChild(svgEl("line", { class: "gridline", x1: PAD.left, x2: PAD.left + f.w, y1: y, y2: y }));
+    const label = svgEl("text", { class: "tick", x: PAD.left - 9, y: y + 3.5, "text-anchor": "end" });
+    label.textContent = fmtTick(t);
+    g.appendChild(label);
+  }
+  g.appendChild(svgEl("line", {
+    class: "axisline", x1: PAD.left, x2: PAD.left + f.w,
+    y1: PAD.top + f.h, y2: PAD.top + f.h,
+  }));
+  const picks = dates.length <= 1 ? [0] : [0, Math.floor((dates.length - 1) / 2), dates.length - 1];
+  for (const i of [...new Set(picks)]) {
+    const label = svgEl("text", {
+      class: "tick", x: f.xScale(i), y: PAD.top + f.h + 16,
+      "text-anchor": i === 0 ? "start" : i === dates.length - 1 ? "end" : "middle",
+    });
+    label.textContent = dates[i].slice(2);
+    g.appendChild(label);
+  }
+}
+
+// --- chart 1: total over time ----------------------------------------------
+
+function renderTotalChart(dates, byDate) {
+  const host = document.getElementById("totalChart");
+  if (!dates.length) { host.innerHTML = '<p class="msg">No data in this range.</p>'; return; }
+
+  const values = dates.map(d => totalFor(byDate.get(d)));
+  const present = values.filter(v => v !== null);
+  if (!present.length) { host.innerHTML = '<p class="msg">Every source failed in this range.</p>'; return; }
+
+  const f = frame(host, 240);
+  const max = Math.max(...present), min = Math.min(...present);
+  const span = max - min || Math.abs(max) || 1;
+  const lo = Math.max(0, min - span * 0.15), hi = max + span * 0.15;
+  f.yScale = v => PAD.top + f.h - ((v - lo) / (hi - lo)) * f.h;
+  f.xScale = i => PAD.left + (dates.length === 1 ? f.w / 2 : (i / (dates.length - 1)) * f.w);
+
+  const g = svgEl("g", {});
+  f.svg.appendChild(g);
+  axes(g, f, dates, niceTicks(lo, hi, 4), t => fmt(t, state.indexMode ? 0 : 0));
+
+  // A missing day breaks the line rather than interpolating across the gap.
+  let run = [];
+  const flush = () => {
+    if (run.length > 1) {
+      g.appendChild(svgEl("path", {
+        d: run.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" "),
+        fill: "none", stroke: "var(--series-1)", "stroke-width": 2,
+        "stroke-linecap": "round", "stroke-linejoin": "round",
+      }));
+    } else if (run.length === 1) {
+      g.appendChild(svgEl("circle", { cx: run[0][0], cy: run[0][1], r: 3, fill: "var(--series-1)" }));
+    }
+    run = [];
+  };
+  values.forEach((v, i) => { if (v === null) flush(); else run.push([f.xScale(i), f.yScale(v)]); });
+  flush();
+
+  // Mark the days that failed, on the baseline, so a gap is legible as a gap.
+  values.forEach((v, i) => {
+    if (v !== null) return;
+    g.appendChild(svgEl("circle", {
+      cx: f.xScale(i), cy: PAD.top + f.h, r: 3,
+      fill: "var(--critical)", stroke: "var(--surface-1)", "stroke-width": 2,
+    }));
+  });
+
+  // Direct label on the endpoint — the value is readable without hovering.
+  const lastIdx = values.reduce((acc, v, i) => v !== null ? i : acc, -1);
+  if (lastIdx >= 0) {
+    g.appendChild(svgEl("circle", {
+      cx: f.xScale(lastIdx), cy: f.yScale(values[lastIdx]), r: 4,
+      fill: "var(--series-1)", stroke: "var(--surface-1)", "stroke-width": 2,
+    }));
+    const label = svgEl("text", {
+      class: "endlabel", x: Math.min(f.xScale(lastIdx) + 9, f.width - 4),
+      y: f.yScale(values[lastIdx]) + 4, fill: "var(--text-primary)",
+    });
+    label.textContent = fmt(values[lastIdx], state.indexMode ? 1 : 0);
+    g.appendChild(label);
+  }
+
+  attachHover(host, f, dates, i => {
+    const v = values[i];
+    if (v !== null) {
+      return { date: dates[i], rows: [{
+        label: state.indexMode ? "Index" : "Total",
+        value: fmt(v, state.indexMode ? 1 : 0), color: "var(--series-1)",
+      }] };
+    }
+    const failed = failedOn(byDate.get(dates[i]));
+    return { date: dates[i], rows: [
+      { label: "no total", value: "incomplete day", color: "var(--critical)" },
+      ...failed.map(s => ({ label: s.label, value: "did not report", color: s.color })),
+    ] };
+  });
+}
+
+// --- chart 2: stacked breakdown --------------------------------------------
+
+function renderStackChart(dates, byDate) {
+  const host = document.getElementById("stackChart");
+  if (!dates.length) { host.innerHTML = '<p class="msg">No data in this range.</p>'; return; }
+
+  const stacks = dates.map(d => {
+    const day = byDate.get(d);
+    return SERIES.map(s => {
+      const row = day[s.key];
+      if (!row || row.status === "error") return null;
+      return num(row.total_czk);
+    });
+  });
+  const dayTotals = stacks.map(vals => vals.reduce((a, v) => a + (v ?? 0), 0));
+  const max = Math.max(...dayTotals, 0);
+  if (!(max > 0)) { host.innerHTML = '<p class="msg">Nothing to break down in this range.</p>'; return; }
+
+  const f = frame(host, 250);
+  const hi = state.indexMode ? 100 : max * 1.1;
+  f.yScale = v => PAD.top + f.h - (v / hi) * f.h;
+  const slot = f.w / dates.length;
+  const barW = Math.max(2, Math.min(30, slot - 3));
+  f.xScale = i => PAD.left + slot * i + slot / 2;
+
+  const g = svgEl("g", {});
+  f.svg.appendChild(g);
+  axes(g, f, dates, niceTicks(0, hi, 4), t => state.indexMode ? `${fmt(t, 0)}%` : fmt(t, 0));
+
+  const GAP = 2;   // surface gap between segments — never a border around them
+  const CAP = 4;   // rounded data-end, on the top segment only
+  stacks.forEach((vals, i) => {
+    const top = vals.reduce((acc, v, si) => (v !== null && v > 0 ? si : acc), -1);
+    let acc = 0;
+    vals.forEach((v, si) => {
+      if (v === null || v <= 0) return;
+      const y0 = f.yScale(acc), y1 = f.yScale(acc + v);
+      const height = Math.max(1, y0 - y1 - GAP);
+      const x = f.xScale(i) - barW / 2;
+      // Only the data-end is rounded; the rest are square so the bar reads as
+      // one bar with a cap rather than a column of beads.
+      if (si === top) {
+        const r = Math.min(CAP, barW / 2, height);
+        g.appendChild(svgEl("path", {
+          d: `M${x} ${y1 + height} L${x} ${y1 + r} Q${x} ${y1} ${x + r} ${y1}`
+           + ` L${x + barW - r} ${y1} Q${x + barW} ${y1} ${x + barW} ${y1 + r}`
+           + ` L${x + barW} ${y1 + height} Z`,
+          fill: SERIES[si].color,
+        }));
+      } else {
+        g.appendChild(svgEl("rect", {
+          x, y: y1, width: barW, height, fill: SERIES[si].color,
+        }));
+      }
+      acc += v;
+    });
+    // Any incomplete day gets the same critical marker as the total chart, so a
+    // short bar is never mistaken for a real drop.
+    if (failedOn(byDate.get(dates[i])).length) {
+      g.appendChild(svgEl("circle", {
+        cx: f.xScale(i), cy: PAD.top + f.h, r: 3,
+        fill: "var(--critical)", stroke: "var(--surface-1)", "stroke-width": 2,
+      }));
+    }
+  });
+
+  attachHover(host, f, dates, i => {
+    const day = byDate.get(dates[i]);
+    const rows = SERIES.map((s, si) => {
+      const row = day[s.key];
+      const v = stacks[i][si];
+      let value;
+      if (!row) value = "no row";
+      else if (row.status === "error") value = "error";
+      else value = state.indexMode ? `${fmt(v, 1)}%` : fmt(v, 0);
+      return { label: s.label + (row?.status === "stale" ? " (stale)" : ""), value, color: s.color };
+    });
+    if (!state.indexMode) {
+      rows.push({ label: "Total", value: fmt(dayTotals[i], 0), color: null, total: true });
+    }
+    return { date: dates[i], rows };
+  }, i => f.xScale(i));
+}
+
+// --- shared hover layer -----------------------------------------------------
+
+function attachHover(host, f, dates, describe, xAt) {
+  const tip = document.createElement("div");
+  tip.className = "tooltip";
+  host.appendChild(tip);
+
+  const xFor = xAt || (i => f.xScale(i));
+  const cross = svgEl("line", {
+    class: "axisline", y1: PAD.top, y2: PAD.top + f.h, x1: -99, x2: -99,
+    stroke: "var(--axis)", "stroke-width": 1,
+  });
+  f.svg.appendChild(cross);
+
+  const hit = svgEl("rect", {
+    x: 0, y: 0, width: f.width, height: f.height, fill: "transparent",
+  });
+  f.svg.appendChild(hit);
+
+  const move = evt => {
+    const box = f.svg.getBoundingClientRect();
+    const px = (evt.clientX - box.left) / box.width * f.width;
+    let best = 0, bestD = Infinity;
+    dates.forEach((_, i) => {
+      const d = Math.abs(xFor(i) - px);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    const info = describe(best);
+    cross.setAttribute("x1", xFor(best));
+    cross.setAttribute("x2", xFor(best));
+    tip.innerHTML = `<div class="tt-date">${info.date}</div>` + info.rows.map(r => `
+      <div class="tt-row${r.total ? " tt-total" : ""}">
+        ${r.color ? `<i class="swatch" style="background:${r.color}"></i>` : `<i class="swatch" style="background:transparent"></i>`}
+        <span class="label"></span><span class="val"></span>
+      </div>`).join("");
+    [...tip.querySelectorAll(".tt-row")].forEach((el, i) => {
+      el.querySelector(".label").textContent = info.rows[i].label;
+      el.querySelector(".val").textContent = info.rows[i].value;
+    });
+    tip.classList.add("on");
+    const scale = box.width / f.width;
+    const left = Math.min(Math.max(xFor(best) * scale + 14, 4), box.width - tip.offsetWidth - 4);
+    tip.style.left = `${left}px`;
+    tip.style.top = `${Math.max(4, evt.clientY - box.top - tip.offsetHeight - 12)}px`;
+  };
+
+  host.addEventListener("mousemove", move);
+  host.addEventListener("mouseleave", () => {
+    tip.classList.remove("on");
+    cross.setAttribute("x1", -99); cross.setAttribute("x2", -99);
+  });
+}
+
+// --- tables -----------------------------------------------------------------
+
+function chip(status) {
+  const kind = status === "ok" ? "ok" : status === "stale" ? "stale" : "error";
+  const icon = kind === "ok" ? "" : kind === "stale" ? "! " : "✕ ";
+  return `<span class="chip ${kind}"><i class="dot"></i>${icon}${status || "missing"}</span>`;
+}
+
+function renderLatest(dates, byDate) {
+  const body = document.getElementById("latestBody");
+  const last = dates[dates.length - 1];
+  document.getElementById("latestNote").textContent = last
+    ? `Most recent row per source. Snapshot of ${last}.` : "";
+  if (!last) { body.innerHTML = ""; return; }
+
+  const day = byDate.get(last);
+  body.innerHTML = SERIES.map(s => {
+    const row = day[s.key];
+    if (!row) {
+      return `<tr><td><span class="src"><i class="swatch" style="background:${s.color}"></i>${s.label}</span></td>
+        <td>${chip("")}</td><td class="num">—</td><td class="num">—</td><td class="num">—</td>
+        <td class="num">—</td><td class="rownote">no row written for this date</td></tr>`;
+    }
+    const cell = v => { const n = num(v); return n === null ? "—" : fmt(n, 2); };
+    return `<tr>
+      <td><span class="src"><i class="swatch" style="background:${s.color}"></i>${s.label}</span></td>
+      <td>${chip(row.status)}</td>
+      <td class="num">${cell(row.cash)}</td>
+      <td class="num">${cell(row.positions_value)}</td>
+      <td class="num">${cell(row.total_native)}${row.currency ? ` <span class="rownote">${row.currency}</span>` : ""}</td>
+      <td class="num">${cell(row.total_czk)}</td>
+      <td class="rownote"></td>
+    </tr>`;
+  }).join("");
+  // Notes are user/API text — set them as text, never as markup.
+  [...body.querySelectorAll("tr")].forEach((tr, i) => {
+    const row = day[SERIES[i].key];
+    if (row) tr.lastElementChild.textContent = row.note || "";
+  });
+}
+
+function renderAllRows(dates) {
+  const set = new Set(dates);
+  const body = document.getElementById("allBody");
+  const rows = state.rows.filter(r => set.has(r.date)).slice().reverse();
+  body.innerHTML = rows.map(() => `<tr>${"<td></td>".repeat(9)}</tr>`).join("");
+  [...body.children].forEach((tr, i) => {
+    const r = rows[i];
+    const cells = [r.date, r.source, r.currency, r.cash, r.positions_value,
+                   r.total_native, r.total_czk, null, r.note];
+    cells.forEach((value, ci) => {
+      const td = tr.children[ci];
+      if (ci >= 3 && ci <= 6) td.className = "num";
+      if (ci === 7) { td.innerHTML = chip(r.status); return; }
+      td.textContent = value ?? "";
+    });
+  });
+}
+
+// ---------------------------------------------------------------- boot
+
+function wire() {
+  document.querySelectorAll("[data-range]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.range = btn.dataset.range;
+      document.querySelectorAll("[data-range]").forEach(b =>
+        b.setAttribute("aria-pressed", String(b === btn)));
+      render();
+    });
+  });
+  const toggle = document.getElementById("viewToggle");
+  toggle.addEventListener("click", () => {
+    state.table = !state.table;
+    toggle.setAttribute("aria-pressed", String(state.table));
+    toggle.textContent = state.table ? "Chart view" : "Table view";
+    render();
+  });
+  let timer;
+  window.addEventListener("resize", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { if (!state.table) render(); }, 120);
+  });
+}
+
+(async function boot() {
+  wire();
+  try {
+    state.rows = await load();
+  } catch (err) {
+    document.getElementById("subtitle").textContent = "Could not load balances.csv";
+    document.getElementById("alerts").appendChild(banner("critical", "✕",
+      `No balance data found (${err.message}). The dashboard reads the CSV committed by the ` +
+      `daily workflow; if the workflow has never run there is nothing to show yet.`));
+    return;
+  }
+  if (!state.rows.length) {
+    document.getElementById("subtitle").textContent = "balances.csv is empty — run the workflow once.";
+    return;
+  }
+  state.indexMode = state.rows.some(r => r.source === TOTAL_ROW);
+  const dates = [...new Set(state.rows.map(r => r.date))].sort();
+  document.getElementById("subtitle").textContent =
+    `${dates.length} day${dates.length === 1 ? "" : "s"} · ${dates[0]} to ${dates[dates.length - 1]}`
+    + (state.indexMode ? " · index mode" : "");
+  document.getElementById("footer").textContent =
+    `Read from ${state.source}. Converted to CZK at ČNB daily rates. `
+    + `Degiro is valued from a manually-maintained holdings file and public prices, so it drifts from Degiro's own figure.`;
+  render();
+})();
+</script>
+</body>
+</html>
